@@ -17,6 +17,21 @@ public record Recording(
 		List<Frame> frames,
 		double initialVelocityX,
 		double initialVelocityY,
-		double initialVelocityZ
+		double initialVelocityZ,
+		Double startOffsetX,
+		Double startOffsetZ
 ) {
+	/**
+	 * The offsets are the fractional part of the position where recording
+	 * began (e.g. 0.458 for x = 64.458), so playback can start at the same
+	 * spot within whatever block the player is standing on. Null (older
+	 * takes, timeline-authored takes) means "centre of the block".
+	 */
+	public Recording(String name, List<Frame> frames, double vx, double vy, double vz) {
+		this(name, frames, vx, vy, vz, null, null);
+	}
+
+	public Recording withName(String newName) {
+		return new Recording(newName, frames, initialVelocityX, initialVelocityY, initialVelocityZ, startOffsetX, startOffsetZ);
+	}
 }

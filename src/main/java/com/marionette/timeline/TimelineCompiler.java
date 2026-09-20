@@ -57,7 +57,7 @@ public final class TimelineCompiler {
 					held(tickIntervals, ActionType.DROP, tick),
 					rotation[0],
 					rotation[1],
-					0
+					-1
 			));
 		}
 

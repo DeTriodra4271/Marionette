@@ -7,7 +7,11 @@
 	"authors": [
 		"oguzhanmantor"
 	],
-	"contact": {},
+	"contact": {
+		"homepage": "https://github.com/DeTriodra4271/Marionette",
+		"sources": "https://github.com/DeTriodra4271/Marionette",
+		"issues": "https://github.com/DeTriodra4271/Marionette/issues"
+	},
 	"license": "CC0-1.0",
 	"environment": "client",
 	"entrypoints": {

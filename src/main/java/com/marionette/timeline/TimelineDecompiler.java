@@ -53,6 +53,18 @@ public final class TimelineDecompiler {
 			}
 		}
 
+		for (int tick = 0; tick < frames.size(); tick++) {
+			var gui = frames.get(tick).gui();
+			if (gui == null) {
+				continue;
+			}
+			for (var event : gui) {
+				if (com.marionette.recording.GuiEvent.DROP.equals(event.kind())) {
+					actions.add(new ActionInterval(ActionType.DROP, tick / 20f, tick / 20f));
+				}
+			}
+		}
+
 		List<RotationKeyframe> rotations = extractRotationKeyframes(frames);
 
 		return new Decompiled(rotations, actions);

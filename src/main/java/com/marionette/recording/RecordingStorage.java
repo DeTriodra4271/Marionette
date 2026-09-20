@@ -2,6 +2,7 @@ package com.marionette.recording;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,12 +80,69 @@ public final class RecordingStorage {
 		if (latest.isEmpty()) {
 			return null;
 		}
-		try (Reader reader = Files.newBufferedReader(latest.get(), StandardCharsets.UTF_8)) {
-			return GSON.fromJson(reader, Recording.class);
-		} catch (IOException e) {
-			LOGGER.error("Failed to load recording {}", latest.get(), e);
+		return read(latest.get());
+	}
+
+	/** Reads one take, returning null (and logging) for unreadable, corrupt, or empty files instead of throwing. */
+	private static Recording read(Path file) {
+		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+			Recording recording = GSON.fromJson(reader, Recording.class);
+			if (recording == null || recording.frames() == null) {
+				LOGGER.error("Recording {} is empty or malformed", file);
+				return null;
+			}
+			return recording;
+		} catch (IOException | JsonParseException e) {
+			LOGGER.error("Failed to load recording {}", file, e);
 			return null;
 		}
+	}
+
+	/** A take name that doesn't collide with an existing file, so saving never silently overwrites another take. */
+	public static String uniqueName(String raw) {
+		String base = sanitizeName(raw);
+		String candidate = base;
+		for (int i = 2; Files.exists(directory().resolve(candidate + ".json")); i++) {
+			candidate = base + " (" + i + ")";
+		}
+		return candidate;
+	}
+
+	/**
+	 * Renames a take on disk. Names are compared after sanitising (and
+	 * case-insensitively via the file system), so a rename that maps to the
+	 * same file can never delete the take. Returns false if the take can't
+	 * be read or the target name belongs to a different take.
+	 */
+	public static boolean rename(String oldName, String newName) {
+		String target = sanitizeName(newName);
+		if (target.equals(oldName)) {
+			return true;
+		}
+		Path from = directory().resolve(oldName + ".json");
+		Path to = directory().resolve(target + ".json");
+		boolean sameFile;
+		try {
+			sameFile = Files.exists(to) && Files.isSameFile(from, to);
+		} catch (IOException e) {
+			return false;
+		}
+		if (Files.exists(to) && !sameFile) {
+			return false;
+		}
+		Recording old = read(from);
+		if (old == null) {
+			return false;
+		}
+		Recording renamed = old.withName(target);
+		if (sameFile) {
+			delete(oldName);
+		}
+		save(renamed);
+		if (!sameFile) {
+			delete(oldName);
+		}
+		return true;
 	}
 
 	/** Names of every saved take, newest first. */
@@ -108,12 +166,7 @@ public final class RecordingStorage {
 
 	public static Recording load(String name) {
 		Path file = directory().resolve(name + ".json");
-		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-			return GSON.fromJson(reader, Recording.class);
-		} catch (IOException e) {
-			LOGGER.error("Failed to load recording {}", name, e);
-			return null;
-		}
+		return read(file);
 	}
 
 	public static void delete(String name) {

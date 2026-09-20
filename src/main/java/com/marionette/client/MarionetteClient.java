@@ -7,6 +7,7 @@ import com.marionette.keyframe.KeyframePlayer;
 import com.marionette.keyframe.KeyframeRecorder;
 import com.marionette.keyframe.KeyframeSequence;
 import com.marionette.keyframe.KeyframeStorage;
+import com.marionette.recording.LoopMode;
 import com.marionette.recording.Player;
 import com.marionette.recording.Recorder;
 import com.marionette.recording.Recording;
@@ -100,7 +101,16 @@ public class MarionetteClient implements ClientModInitializer {
 				CATEGORY
 		));
 
-		ClientTickEvents.START_CLIENT_TICK.register(player::applyInput);
+		ClientTickEvents.START_CLIENT_TICK.register(client -> {
+			try {
+				player.applyInput(client);
+			} catch (RuntimeException e) {
+				// A replay problem should stop the replay, not crash the game.
+				LOGGER.error("Marionette playback failed, stopping", e);
+				player.stop();
+				message(client, "Marionette: playback stopped after an error (see log)");
+			}
+		});
 		ClientTickEvents.START_CLIENT_TICK.register(recorder::tickStart);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			while (recordKey.consumeClick()) {
@@ -127,7 +137,6 @@ public class MarionetteClient implements ClientModInitializer {
 			while (keyframeMenuKey.consumeClick()) {
 				openKeyframesMenu(client);
 			}
-			player.applyInteractions(client);
 			recorder.tick(client);
 			keyframeRecorder.tick();
 			keyframePlayer.tick(client);
@@ -139,12 +148,12 @@ public class MarionetteClient implements ClientModInitializer {
 			Recording recorded = recorder.stop("take-" + System.currentTimeMillis());
 			int frameCount = recorded.frames().size();
 			client.setScreenAndShow(new NamePromptScreen("Name this take", recorded.name(), chosenName -> {
-				Recording named = new Recording(chosenName, recorded.frames(),
-						recorded.initialVelocityX(), recorded.initialVelocityY(), recorded.initialVelocityZ());
+				String finalName = RecordingStorage.uniqueName(chosenName);
+				Recording named = recorded.withName(finalName);
 				RecordingStorage.save(named);
 				lastRecording = named;
 				Minecraft mc = Minecraft.getInstance();
-				message(mc, "Marionette: saved take '" + chosenName + "' (" + frameCount + " ticks)");
+				message(mc, "Marionette: saved take '" + finalName + "' (" + frameCount + " ticks)");
 				mc.setScreenAndShow(null);
 			}));
 		} else {
@@ -172,7 +181,7 @@ public class MarionetteClient implements ClientModInitializer {
 			message(client, "Marionette: no take available yet");
 			return;
 		}
-		playRecording(lastRecording, false);
+		playRecording(lastRecording, LoopMode.OFF);
 	}
 
 	private void openMenu(Minecraft client) {
@@ -186,7 +195,7 @@ public class MarionetteClient implements ClientModInitializer {
 		if (client.player == null) {
 			return;
 		}
-		client.setScreenAndShow(new TimelineScreen(recording -> playRecording(recording, false)));
+		client.setScreenAndShow(new TimelineScreen(recording -> playRecording(recording, LoopMode.OFF)));
 	}
 
 	private void editRecording(Recording recording) {
@@ -195,14 +204,14 @@ public class MarionetteClient implements ClientModInitializer {
 		}
 		TimelineDecompiler.Decompiled decompiled = TimelineDecompiler.decompile(recording);
 		Minecraft.getInstance().setScreenAndShow(new TimelineScreen(
-				edited -> playRecording(edited, false),
+				edited -> playRecording(edited, LoopMode.OFF),
 				recording.name(),
 				decompiled.rotations(),
 				decompiled.actions()
 		));
 	}
 
-	private void playRecording(Recording recording, boolean loop) {
+	private void playRecording(Recording recording, LoopMode loop) {
 		Minecraft client = Minecraft.getInstance();
 		if (client.player == null) {
 			return;
@@ -218,7 +227,8 @@ public class MarionetteClient implements ClientModInitializer {
 			player.stop();
 		}
 		player.start(recording, client.player, loop);
-		message(client, "Marionette: playing back (" + recording.frames().size() + " ticks)" + (loop ? " [looping]" : ""));
+		message(client, "Marionette: playing back (" + recording.frames().size() + " ticks)"
+				+ (loop == LoopMode.OFF ? "" : loop == LoopMode.REPEAT ? " [looping]" : " [looping, back to start]"));
 	}
 
 	private void addKeyframe(Minecraft client) {
@@ -243,11 +253,12 @@ public class MarionetteClient implements ClientModInitializer {
 		KeyframeSequence recorded = keyframeRecorder.finish("keyframes-" + System.currentTimeMillis());
 		int count = recorded.keyframes().size();
 		client.setScreenAndShow(new NamePromptScreen("Name this path", recorded.name(), chosenName -> {
-			KeyframeSequence named = new KeyframeSequence(chosenName, recorded.keyframes());
+			String finalName = KeyframeStorage.uniqueName(chosenName);
+			KeyframeSequence named = new KeyframeSequence(finalName, recorded.keyframes());
 			KeyframeStorage.save(named);
 			lastKeyframeSequence = named;
 			Minecraft mc = Minecraft.getInstance();
-			message(mc, "Marionette: saved path '" + chosenName + "' (" + count + " keyframes)");
+			message(mc, "Marionette: saved path '" + finalName + "' (" + count + " keyframes)");
 			mc.setScreenAndShow(null);
 		}));
 	}

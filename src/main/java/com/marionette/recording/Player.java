@@ -6,11 +6,13 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
@@ -35,24 +37,25 @@ import net.minecraft.world.phys.Vec3;
  * (which only refreshes once per rendered frame, not per tick) happens to
  * line up with what was recorded.
  *
- * <p>Because interaction aim doesn't depend on the entity's actual current
- * rotation, the two can be timed independently: movement/action keys are
- * applied at the <em>start</em> of the tick (physics needs to see them in
- * time to move the player correctly this tick), but the visible rotation
- * itself is applied at the <em>end</em>, after the entity's own tick has
- * already snapshotted its old rotation for the camera to interpolate from.
- * Setting it at tick start (as input is) made the camera snap straight to
- * each new angle with nothing to interpolate from, which is what made
- * playback look like it was constantly teleporting; applying it last means
- * every render between now and the next tick eases from the old angle to
- * the new one, same as it would if a person were actually turning the
- * mouse, while aim accuracy is unaffected either way.
+ * <p>Everything for a frame — keys, rotation, then clicks — is applied at
+ * the <em>start</em> of its tick, matching what the recorder saw (mouse
+ * turns land between ticks, so a whole tick sees one angle). The local
+ * player's camera doesn't interpolate rotation on its own, so between
+ * ticks {@code LocalPlayerViewMixin} feeds it a smooth curve through the
+ * recorded angles; see {@link #viewYaw(float)}.
  */
 public class Player {
+	/** The instance currently replaying, read by the camera mixin. */
+	private static volatile Player active;
+
 	private Recording recording;
 	private int index;
 	private boolean playing;
-	private boolean loop;
+	private LoopMode loopMode = LoopMode.OFF;
+	private double startX;
+	private double startY;
+	private double startZ;
+	private boolean skipMenuClicks;
 	private Frame pendingInteractionFrame;
 
 	private boolean wasAttacking;
@@ -60,13 +63,17 @@ public class Player {
 	private boolean wasDropping;
 	private BlockPos miningPos;
 	private Direction miningDirection;
+	private int guiWaitTicks;
 
-	public void start(Recording recording, LocalPlayer player, boolean loop) {
+	public void start(Recording recording, LocalPlayer player, LoopMode loopMode) {
 		this.recording = recording;
 		this.index = 0;
+		active = this;
 		this.playing = true;
-		this.loop = loop;
+		this.loopMode = loopMode;
+		this.skipMenuClicks = false;
 		this.pendingInteractionFrame = null;
+		this.guiWaitTicks = 0;
 		this.wasAttacking = false;
 		this.wasSwapping = false;
 		this.wasDropping = false;
@@ -74,21 +81,26 @@ public class Player {
 		this.miningDirection = null;
 
 		resetForStart(player);
+		startX = player.getX();
+		startY = player.getY();
+		startZ = player.getZ();
 	}
 
 	/**
-	 * Snaps X/Z to the center of whatever block the player is standing on
-	 * before the first frame runs (once, not every tick — this doesn't
-	 * fight physics the way per-tick teleporting did). Movement is purely
+	 * Moves X/Z to the same spot within the current block that recording
+	 * started from (recorded at 64.458 and replayed while standing anywhere
+	 * on block 200 gives 200.458), before the first frame runs. Once, not
+	 * every tick, so it doesn't fight physics. Movement is purely
 	 * input-driven and relies on physics being deterministic given the same
-	 * starting conditions; starting from an arbitrary sub-block position
-	 * (e.g. x=363.499 instead of x=363.5) is itself a source of drift
-	 * between the original recording and any replay of it, compounding
-	 * over a long take. Y is left alone since it's already exact once
-	 * standing on solid ground.
+	 * starting conditions, so matching the sub-block position removes a
+	 * source of drift between the recording and its replay. Takes without a
+	 * recorded offset use the block centre. Y is left alone since it's
+	 * already exact once standing on solid ground.
 	 */
 	private void resetForStart(LocalPlayer player) {
-		player.setPos(Math.floor(player.getX()) + 0.5, player.getY(), Math.floor(player.getZ()) + 0.5);
+		double offsetX = recording.startOffsetX() != null ? recording.startOffsetX() : 0.5;
+		double offsetZ = recording.startOffsetZ() != null ? recording.startOffsetZ() : 0.5;
+		player.setPos(Math.floor(player.getX()) + offsetX, player.getY(), Math.floor(player.getZ()) + offsetZ);
 		player.setDeltaMovement(
 				recording.initialVelocityX(),
 				recording.initialVelocityY(),
@@ -101,8 +113,11 @@ public class Player {
 			return;
 		}
 		playing = false;
+		if (active == this) {
+			active = null;
+		}
 		pendingInteractionFrame = null;
-		if (wasAttacking) {
+		if (wasAttacking && Minecraft.getInstance().gameMode != null) {
 			Minecraft.getInstance().gameMode.stopDestroyBlock();
 		}
 		wasAttacking = false;
@@ -131,12 +146,26 @@ public class Player {
 			return;
 		}
 		if (index >= recording.frames().size()) {
-			if (!loop) {
+			if (loopMode == LoopMode.OFF) {
 				stop();
 				return;
 			}
 			index = 0;
-			resetForStart(player);
+			if (loopMode == LoopMode.RETURN_TO_START) {
+				player.setPos(startX, startY, startZ);
+				player.setDeltaMovement(recording.initialVelocityX(), recording.initialVelocityY(), recording.initialVelocityZ());
+			} else {
+				resetForStart(player);
+			}
+			skipMenuClicks = false;
+		}
+
+		// A container click can only be sent once that container is open (a
+		// chest takes a moment to open after the click that opens it), so hold
+		// the timeline here instead of letting the rest of the take run ahead.
+		if (waitingForMenu(player, recording.frames().get(index))) {
+			releaseInputs();
+			return;
 		}
 
 		Frame frame = recording.frames().get(index++);
@@ -149,12 +178,147 @@ public class Player {
 		setDown(options.keyJump, frame.jump());
 		setDown(options.keyShift, frame.sneak());
 		setDown(options.keySprint, frame.sprint());
-		player.getInventory().setSelectedSlot(frame.selectedSlot());
+		// Negative means "leave the hotbar alone" (timeline-authored takes have no slot data).
+		if (frame.selectedSlot() >= 0) {
+			player.getInventory().setSelectedSlot(frame.selectedSlot());
+		}
 
+		// Rotation goes in at the start of the tick, same as it was seen
+		// when recorded (mouse turns land between ticks, so the whole tick
+		// saw this angle): movement physics, aim and clicks all agree.
+		player.setYRot(frame.yaw());
+		player.setXRot(frame.pitch());
+
+		// Clicks and mining run now too, not at the end of the tick: vanilla
+		// handles them at the start of the tick, before this tick's movement,
+		// so doing them later put every placement a tick behind.
 		pendingInteractionFrame = frame;
+		applyInteractions(client);
 	}
 
-	public void applyInteractions(Minecraft client) {
+	private static final int MAX_MENU_WAIT_TICKS = 80;
+
+	private boolean waitingForMenu(LocalPlayer player, Frame next) {
+		String expected = firstClickMenu(next);
+		if (expected == null || expected.equals(GuiEvent.menuKey(player))) {
+			guiWaitTicks = 0;
+			skipMenuClicks = false;
+			return false;
+		}
+		if (skipMenuClicks) {
+			return false;
+		}
+		// Give up (the chest never opened, e.g. the click missed it) so a bad
+		// start can't hang forever. The rest of that container visit is then
+		// skipped rather than waited on again for every click.
+		if (++guiWaitTicks > MAX_MENU_WAIT_TICKS) {
+			guiWaitTicks = 0;
+			skipMenuClicks = true;
+			return false;
+		}
+		return true;
+	}
+
+	private static String firstClickMenu(Frame frame) {
+		if (frame.gui() == null) {
+			return null;
+		}
+		for (GuiEvent event : frame.gui()) {
+			if (GuiEvent.CLICK.equals(event.kind())) {
+				return event.menu();
+			}
+		}
+		return null;
+	}
+
+	private void applyGui(Minecraft client, LocalPlayer player, Frame frame) {
+		if (frame.gui() == null) {
+			return;
+		}
+		for (GuiEvent event : frame.gui()) {
+			switch (event.kind()) {
+				case GuiEvent.CLICK -> {
+					ContainerInput[] inputs = ContainerInput.values();
+					// Slot -999 / -1 mean "outside the window"; anything else must exist in
+					// the menu that is open now, or the game itself would throw.
+					int slotCount = player.containerMenu.slots.size();
+					if (client.gameMode != null && event.input() >= 0 && event.input() < inputs.length
+							&& GuiEvent.menuKey(player).equals(event.menu())
+							&& (event.slot() < 0 || event.slot() < slotCount)) {
+						client.gameMode.handleContainerInput(player.containerMenu.containerId,
+								event.slot(), event.button(), inputs[event.input()], player);
+					}
+				}
+				case GuiEvent.DROP -> {
+					if (player.drop(event.button() == 1)) {
+						player.swing(InteractionHand.MAIN_HAND);
+					}
+				}
+				case GuiEvent.OPEN_INVENTORY -> {
+					if (client.gui.screen() == null) {
+						client.setScreenAndShow(new InventoryScreen(player));
+					}
+				}
+				case GuiEvent.CLOSE -> {
+					skipMenuClicks = false;
+					if (player.containerMenu != player.inventoryMenu || client.gui.screen() != null) {
+						player.closeContainer();
+					}
+				}
+				default -> {
+				}
+			}
+		}
+	}
+
+	/**
+	 * Camera yaw between ticks: a Catmull-Rom curve through the recorded
+	 * frames, running from the frame just applied to the next one, so it
+	 * lands exactly on that frame when the next tick applies it. Null when
+	 * nothing is playing, so the camera falls back to the real rotation.
+	 */
+	public static Float viewYaw(float partialTick) {
+		Player p = active;
+		return p == null ? null : p.smoothedRotation(partialTick, true);
+	}
+
+	public static Float viewPitch(float partialTick) {
+		Player p = active;
+		return p == null ? null : p.smoothedRotation(partialTick, false);
+	}
+
+	private Float smoothedRotation(float partialTick, boolean yaw) {
+		Recording current = recording;
+		if (!playing || current == null) {
+			return null;
+		}
+		java.util.List<Frame> frames = current.frames();
+		int k = index - 1;
+		if (k < 0 || k >= frames.size()) {
+			return null;
+		}
+		float t = Math.max(0f, Math.min(1f, partialTick));
+		float a = component(frames.get(Math.max(k - 1, 0)), yaw);
+		float b = component(frames.get(k), yaw);
+		float c = component(frames.get(Math.min(k + 1, frames.size() - 1)), yaw);
+		float d = component(frames.get(Math.min(k + 2, frames.size() - 1)), yaw);
+		if (yaw) {
+			// unwrap around b so a turn across the -180/180 seam takes the short way
+			a = b + net.minecraft.util.Mth.wrapDegrees(a - b);
+			c = b + net.minecraft.util.Mth.wrapDegrees(c - b);
+			d = c + net.minecraft.util.Mth.wrapDegrees(d - c);
+		}
+		float t2 = t * t;
+		float t3 = t2 * t;
+		float value = 0.5f * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+		return yaw ? value : Math.max(-90f, Math.min(90f, value));
+	}
+
+	private static float component(Frame frame, boolean yaw) {
+		return yaw ? frame.yaw() : frame.pitch();
+	}
+
+	private void applyInteractions(Minecraft client) {
 		if (pendingInteractionFrame == null) {
 			return;
 		}
@@ -166,8 +330,7 @@ public class Player {
 			return;
 		}
 
-		player.setYRot(frame.yaw());
-		player.setXRot(frame.pitch());
+		applyGui(client, player, frame);
 
 		boolean attacking = frame.attack();
 		if (attacking && !wasAttacking) {

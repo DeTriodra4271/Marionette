@@ -17,6 +17,10 @@ package com.marionette.recording;
  * faster than 20 times a second means multiple real clicks can land inside
  * a single tick — a boolean "held this tick" flag would silently merge or
  * drop them.
+ *
+ * <p>{@code gui} holds the inventory actions (container clicks, drops, screens
+ * opening and closing) that happened just before this tick; null when there
+ * were none, and in takes saved before this existed.
  */
 public record Frame(
 		boolean forward,
@@ -32,6 +36,13 @@ public record Frame(
 		boolean drop,
 		float yaw,
 		float pitch,
-		int selectedSlot
+		int selectedSlot,
+		java.util.List<GuiEvent> gui
 ) {
+	public Frame(boolean forward, boolean back, boolean left, boolean right, boolean jump, boolean sneak,
+			boolean sprint, boolean attack, int useClicks, boolean swapHands, boolean drop,
+			float yaw, float pitch, int selectedSlot) {
+		this(forward, back, left, right, jump, sneak, sprint, attack, useClicks, swapHands, drop,
+				yaw, pitch, selectedSlot, null);
+	}
 }

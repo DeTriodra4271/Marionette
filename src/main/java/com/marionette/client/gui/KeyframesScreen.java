@@ -84,11 +84,7 @@ public class KeyframesScreen extends Screen {
 			return;
 		}
 		minecraft.setScreenAndShow(new NamePromptScreen("Rename path", currentName, newName -> {
-			if (!newName.equals(currentName)) {
-				KeyframeSequence renamed = new KeyframeSequence(newName, sequence.keyframes());
-				KeyframeStorage.save(renamed);
-				KeyframeStorage.delete(currentName);
-			}
+			KeyframeStorage.rename(currentName, newName);
 			minecraft.setScreenAndShow(new KeyframesScreen(onPlay));
 		}));
 	}

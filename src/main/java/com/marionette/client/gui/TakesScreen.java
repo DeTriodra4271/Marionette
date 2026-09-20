@@ -1,5 +1,6 @@
 package com.marionette.client.gui;
 
+import com.marionette.recording.LoopMode;
 import com.marionette.recording.Recording;
 import com.marionette.recording.RecordingStorage;
 import net.minecraft.client.gui.components.Button;
@@ -23,11 +24,11 @@ public class TakesScreen extends Screen {
 	private static final int DELETE_WIDTH = 20;
 	private static final int GAP = 4;
 
-	private final BiConsumer<Recording, Boolean> onPlay;
+	private final BiConsumer<Recording, LoopMode> onPlay;
 	private final Consumer<Recording> onEdit;
-	private boolean loop;
+	private LoopMode loop = LoopMode.OFF;
 
-	public TakesScreen(BiConsumer<Recording, Boolean> onPlay, Consumer<Recording> onEdit) {
+	public TakesScreen(BiConsumer<Recording, LoopMode> onPlay, Consumer<Recording> onEdit) {
 		super(Component.literal("Marionette Takes"));
 		this.onPlay = onPlay;
 		this.onEdit = onEdit;
@@ -41,7 +42,7 @@ public class TakesScreen extends Screen {
 		int y = 32;
 
 		addRenderableWidget(Button.builder(loopLabel(), button -> {
-			loop = !loop;
+			loop = LoopMode.values()[(loop.ordinal() + 1) % LoopMode.values().length];
 			button.setMessage(loopLabel());
 		}).bounds(x, 8, totalWidth, BUTTON_HEIGHT).build());
 
@@ -95,18 +96,17 @@ public class TakesScreen extends Screen {
 			return;
 		}
 		minecraft.setScreenAndShow(new NamePromptScreen("Rename take", currentName, newName -> {
-			if (!newName.equals(currentName)) {
-				Recording renamed = new Recording(newName, recording.frames(),
-						recording.initialVelocityX(), recording.initialVelocityY(), recording.initialVelocityZ());
-				RecordingStorage.save(renamed);
-				RecordingStorage.delete(currentName);
-			}
+			RecordingStorage.rename(currentName, newName);
 			minecraft.setScreenAndShow(new TakesScreen(onPlay, onEdit));
 		}));
 	}
 
 	private Component loopLabel() {
-		return Component.literal(loop ? "Loop: ON (plays until stopped with P)" : "Loop: OFF (plays once)");
+		return Component.literal(switch (loop) {
+			case OFF -> "Loop: OFF (plays once)";
+			case REPEAT -> "Loop: ON (repeats from where it ends)";
+			case RETURN_TO_START -> "Loop: ON, back to the start each time";
+		});
 	}
 
 	private Button disabledLabel(String text, int x, int y, int width) {

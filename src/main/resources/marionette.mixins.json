@@ -3,7 +3,11 @@
 	"package": "com.marionette.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
-		"KeyMappingAccessor"
+		"KeyMappingAccessor",
+		"LocalPlayerViewMixin",
+		"MinecraftUseMixin",
+		"MultiPlayerGameModeMixin",
+		"LocalPlayerActionMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

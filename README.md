@@ -5,7 +5,8 @@ A client-side Fabric mod for Minecraft that records your movement and actions, r
 ## Features
 
 - **Record and replay takes.** Capture what you do (movement, jumps, sneaking, sprinting, attacking, using, swapping hands, dropping items, and where you look) and play it back later. Replay presses the same keys and lets the game's own physics move you, so jumps and sprints behave like the real thing.
-- **Takes menu.** Play, edit, rename, or delete saved takes. Optional looping.
+- **Inventory and containers.** Clicks in your inventory and in chests (and other container screens), item drops (Q and Ctrl+Q), and opening and closing the inventory are recorded and replayed. Replay waits for a container to actually open before clicking in it. For it to match, start with the same inventory and the same container contents as when you recorded.
+- **Takes menu.** Play, edit, rename, or delete saved takes. The loop button cycles through off, repeat (start again from wherever the take ended), and back to the start (put you back at the exact spot the playback began before every lap, for a seamless loop).
 - **Action timeline editor.** Open a take as blocks on a timeline. Drag blocks to move them, drag either edge to trim, add new actions, and add or retime look keyframes.
 - **Keyframe camera paths.** Drop keyframes as you fly around, then play them back as a smooth spline (Catmull-Rom for position, shortest-way interpolation for yaw). Useful for cinematics.
 
@@ -58,6 +59,11 @@ The jar is written to `build/libs/`. To start a development client:
 ## Fair use
 
 Replaying recorded input on a multiplayer server can count as a macro or automation, which many servers forbid. Check the server's rules before using it there. It is intended for single-player, private worlds, and content creation.
+
+## Limitations
+
+- Creative-mode inventory item picking isn't recorded (it doesn't use normal container clicks). Recording in survival, or using chests, works.
+- Opening a take in the timeline editor and saving it keeps drops but not container clicks or the hotbar slot.
 
 ## Roadmap
 

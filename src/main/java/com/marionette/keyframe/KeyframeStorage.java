@@ -2,6 +2,7 @@ package com.marionette.keyframe;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,12 +70,7 @@ public final class KeyframeStorage {
 
 	public static KeyframeSequence load(String name) {
 		Path file = directory().resolve(name + ".json");
-		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-			return GSON.fromJson(reader, KeyframeSequence.class);
-		} catch (IOException e) {
-			LOGGER.error("Failed to load keyframe sequence {}", name, e);
-			return null;
-		}
+		return read(file);
 	}
 
 	public static void delete(String name) {
@@ -99,12 +95,63 @@ public final class KeyframeStorage {
 		if (latest.isEmpty()) {
 			return null;
 		}
-		try (Reader reader = Files.newBufferedReader(latest.get(), StandardCharsets.UTF_8)) {
-			return GSON.fromJson(reader, KeyframeSequence.class);
-		} catch (IOException e) {
-			LOGGER.error("Failed to load keyframe sequence {}", latest.get(), e);
+		return read(latest.get());
+	}
+
+	/** Reads one path, returning null (and logging) for unreadable, corrupt, or empty files instead of throwing. */
+	private static KeyframeSequence read(Path file) {
+		try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+			KeyframeSequence sequence = GSON.fromJson(reader, KeyframeSequence.class);
+			if (sequence == null || sequence.keyframes() == null) {
+				LOGGER.error("Keyframe sequence {} is empty or malformed", file);
+				return null;
+			}
+			return sequence;
+		} catch (IOException | JsonParseException e) {
+			LOGGER.error("Failed to load keyframe sequence {}", file, e);
 			return null;
 		}
+	}
+
+	/** A path name that doesn't collide with an existing file, so saving never silently overwrites another path. */
+	public static String uniqueName(String raw) {
+		String base = com.marionette.recording.RecordingStorage.sanitizeName(raw);
+		String candidate = base;
+		for (int i = 2; Files.exists(directory().resolve(candidate + ".json")); i++) {
+			candidate = base + " (" + i + ")";
+		}
+		return candidate;
+	}
+
+	/** Renames a path on disk; same-file and name-collision rules match {@link com.marionette.recording.RecordingStorage#rename}. */
+	public static boolean rename(String oldName, String newName) {
+		String target = com.marionette.recording.RecordingStorage.sanitizeName(newName);
+		if (target.equals(oldName)) {
+			return true;
+		}
+		Path from = directory().resolve(oldName + ".json");
+		Path to = directory().resolve(target + ".json");
+		boolean sameFile;
+		try {
+			sameFile = Files.exists(to) && Files.isSameFile(from, to);
+		} catch (IOException e) {
+			return false;
+		}
+		if (Files.exists(to) && !sameFile) {
+			return false;
+		}
+		KeyframeSequence old = read(from);
+		if (old == null) {
+			return false;
+		}
+		if (sameFile) {
+			delete(oldName);
+		}
+		save(new KeyframeSequence(target, old.keyframes()));
+		if (!sameFile) {
+			delete(oldName);
+		}
+		return true;
 	}
 
 	private static long lastModified(Path path) {

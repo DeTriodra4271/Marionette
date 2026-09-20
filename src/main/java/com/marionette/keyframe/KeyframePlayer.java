@@ -52,7 +52,7 @@ public class KeyframePlayer {
 		List<Keyframe> frames = sequence.keyframes();
 		Keyframe last = frames.get(frames.size() - 1);
 
-		if (frames.size() == 1) {
+		if (frames.size() == 1 || last.time() <= 0f) {
 			apply(player, last.x(), last.y(), last.z(), last.yaw(), last.pitch());
 			stop();
 			return;
