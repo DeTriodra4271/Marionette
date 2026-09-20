@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "marionette",
+	"version": "${version}",
+	"name": "Marionette",
+	"description": "Records player actions (movement, look, and clicks) into takes and plays them back, laying the groundwork for keyframe-based automation.",
+	"authors": [
+		"oguzhanmantor"
+	],
+	"contact": {},
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.marionette.client.MarionetteClient"
+		]
+	},
+	"mixins": [
+		"marionette.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

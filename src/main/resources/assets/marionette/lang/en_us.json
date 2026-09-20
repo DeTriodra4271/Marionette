@@ -1,0 +1,11 @@
+{
+	"key.category.marionette.main": "Marionette",
+	"key.marionette.record": "Toggle Recording",
+	"key.marionette.play": "Toggle Playback",
+	"key.marionette.menu": "Open Takes Menu",
+	"key.marionette.keyframe_add": "Add Keyframe Here",
+	"key.marionette.keyframe_finish": "Finish & Save Path",
+	"key.marionette.keyframe_play": "Toggle Path Playback",
+	"key.marionette.timeline": "Open Action Timeline",
+	"key.marionette.keyframe_menu": "Open Keyframe Paths Menu"
+}

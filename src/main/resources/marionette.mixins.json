@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "com.marionette.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"mixins": [
+		"KeyMappingAccessor"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
